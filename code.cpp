@@ -1,117 +1,122 @@
-#include <bits/stdc++.h>
-#include <nlohmann/json.hpp>  // or: #include "json.hpp"
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <cmath>
+#include <algorithm>
+#include <sstream>
+#include <iomanip>
+#include "json.hpp" 
 
-using namespace std;
 using json = nlohmann::json;
+using namespace std;
 
-// base-B string -> decimal (unsigned long long can overflow for huge y;
-// but we'll use long double for solving and round at the end, same idea
-// as the Lagrange version).
-long long toDecimal(const string &value, int base) {
-    long double acc = 0.0L;
-    for (char c : value) {
-        int d;
-        if (isdigit(c)) d = c - '0';
-        else if (isalpha(c)) d = tolower(c) - 'a' + 10;
-        else continue;
-        acc = acc * base + d;
+// Function to convert a string from given base to decimal
+long long convertToDecimal(const string& value, int base) {
+    long long result = 0;
+    long long power = 1;
+
+    for (int i = value.length() - 1; i >= 0; i--) {
+        char c = value[i];
+        int digit;
+
+        if (c >= '0' && c <= '9') {
+            digit = c - '0';
+        } else if (c >= 'a' && c <= 'z') {
+            digit = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'Z') {
+            digit = c - 'A' + 10;
+        } else {
+            throw invalid_argument("Invalid character in number");
+        }
+
+        if (digit >= base) {
+            throw invalid_argument("Digit exceeds base value");
+        }
+
+        result += digit * power;
+        power *= base;
     }
-    // we only need the final integer value; round safely
-    return (long long) llround(acc);
+
+    return result;
 }
 
-// Solve A * a = y using Gaussian elimination with partial pivoting
-// A is k x k (Vandermonde), y is size k. Returns vector a (coefficients).
-vector<long double> gaussianSolve(vector<vector<long double>> A, vector<long double> y) {
-    int n = (int)A.size();
+// Function to parse JSON and extract roots
+vector<long long> parseRoots(const json& data) {
+    vector<long long> roots;
+    int n = data["keys"]["n"];
 
-    // Augment A | y
-    for (int i = 0; i < n; ++i) A[i].push_back(y[i]);
+    for (int i = 1; i <= n; i++) {
+        string key = to_string(i);
+        if (data.contains(key)) {
+            string base_str = data[key]["base"];
+            string value_str = data[key]["value"];
 
-    for (int col = 0, row = 0; col < n && row < n; ++col, ++row) {
-    
-        int piv = row;
-        for (int r = row + 1; r < n; ++r)
-            if (fabsl(A[r][col]) > fabsl(A[piv][col])) piv = r;
-        if (fabsl(A[piv][col]) < 1e-18L) continue;
-
-        // swap rows
-        if (piv != row) swap(A[piv], A[row]);
-        long double div = A[row][col];
-        for (int c = col; c <= n; ++c) A[row][c] /= div;
-        for (int r = row + 1; r < n; ++r) {
-            long double factor = A[r][col];
-            if (fabsl(factor) < 1e-18L) continue;
-            for (int c = col; c <= n; ++c) A[r][c] -= factor * A[row][c];
+            int base = stoi(base_str);
+            long long decimal_value = convertToDecimal(value_str, base);
+            roots.push_back(decimal_value);
         }
     }
 
-    // Back substitution
-    vector<long double> a(n, 0.0L);
-    for (int i = n - 1; i >= 0; --i) {
-        // find leading 1
-        int lead = -1;
-        for (int c = 0; c < n; ++c) {
-            if (fabsl(A[i][c]) > 1e-12L) { lead = c; break; }
-        }
-        if (lead == -1) continue; // degenerate (shouldn't happen)
-        long double rhs = A[i][n];
-        for (int c = lead + 1; c < n; ++c) rhs -= A[i][c] * a[c];
-        a[lead] = rhs / A[i][lead]; // A[i][lead] should be 1 after normalization
+    return roots;
+}
+
+// Function to find quadratic coefficients using Vieta's formulas
+long long findConstantC(const vector<long long>& roots) {
+    if (roots.size() < 2) {
+        throw runtime_error("Need at least 2 roots for quadratic equation");
     }
-    return a;
+
+    // For quadratic equation ax² + bx + c = 0 with roots r1, r2
+    // r1 * r2 = c/a, assuming a=1, so c = r1 * r2
+    return roots[0] * roots[1];
+}
+
+void processFile(const string& filename) {
+    try {
+        cout << "=== Processing " << filename << " ===" << endl;
+
+        // Read JSON input from file
+        ifstream input_file(filename);
+        if (!input_file.is_open()) {
+            cerr << "Error: Could not open file " << filename << endl;
+            return;
+        }
+
+        json data;
+        input_file >> data;
+        input_file.close();
+
+        // Step 1: Parse keys
+        int n = data["keys"]["n"];
+        int k = data["keys"]["k"];
+        cout << "n: " << n << ", k: " << k << endl;
+
+        // Step 2: Decode roots from different bases to decimal
+        vector<long long> roots = parseRoots(data);
+
+        cout << "Decoded roots:" << endl;
+        for (size_t i = 0; i < roots.size(); i++) {
+            cout << "Root " << (i+1) << ": " << roots[i] << endl;
+        }
+
+        // Step 3: Find constant c using Vieta's formulas
+        long long c = findConstantC(roots);
+        cout << "Constant c: " << c << endl;
+        cout << "=================================" << endl << endl;
+
+    } catch (const exception& e) {
+        cerr << "Error processing " << filename << ": " << e.what() << endl;
+    }
 }
 
 int main() {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
+    cout << "Polynomial Equation Solver" << endl;
+    cout << "==========================" << endl << endl;
 
-    // Read complete JSON from stdin
-    string input, line;
-    while (getline(cin, line)) input += line;
-    json data = json::parse(input);
-
-    int n = data["keys"]["n"];
-    int k = data["keys"]["k"];
-
-    // (x, y) points
-    vector<pair<long double, long double>> pts;
-    pts.reserve(n);
-
-    for (auto &el : data.items()) {
-        if (el.key() == "keys") continue;
-        int x = stoi(el.key());
-        int base = stoi(el.value()["base"].get<string>());
-        string v = el.value()["value"].get<string>();
-        long long y = toDecimal(v, base);
-        pts.push_back({(long double)x, (long double)y});
-    }
-
-    // sort by x and keep only k points
-    sort(pts.begin(), pts.end(),
-         [](auto &a, auto &b){ return a.first < b.first; });
-    if ((int)pts.size() > k) pts.resize(k);
-
-    // Build Vandermonde matrix A (row i: [1, x_i, x_i^2, ...])
-    vector<vector<long double>> A(k, vector<long double>(k, 0.0L));
-    vector<long double> Y(k, 0.0L);
-
-    for (int i = 0; i < k; ++i) {
-        long double x = pts[i].first;
-        long double p = 1.0L;
-        for (int j = 0; j < k; ++j) {
-            A[i][j] = p;
-            p *= x;
-        }
-        Y[i] = pts[i].second;
-    }
-
-    // Solve for coefficients a0..a_{k-1}
-    vector<long double> a = gaussianSolve(A, Y);
-
-    // constant term is a0
-    long long secret = llround(a[0]);
-    cout << "Secret (c) = " << secret << "\n";
+    // Process both input files
+    processFile("input1.json");
+    processFile("input2.json");
 
     return 0;
 }
